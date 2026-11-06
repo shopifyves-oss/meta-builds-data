@@ -1,0 +1,10 @@
+.env
+node_modules/
+data/
+public/
+app/
+_to_delete/
+.DS_Store
+*.log
+Claude outputs/
+cdn-url.txt

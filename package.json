@@ -1,0 +1,10 @@
+{
+  "name": "wow-meta-builds",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "mplus": "node pipeline/mplus.mjs",
+    "pvp": "node pipeline/pvp.mjs"
+  }
+}

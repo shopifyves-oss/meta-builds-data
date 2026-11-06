@@ -1,0 +1,65 @@
+# Всяка нощ: събира мета билдовете, тегли икони/дървета и публикува JSON в GitHub Pages (CDN).
+name: Nightly data
+
+on:
+  schedule:
+    - cron: '37 1 * * *'   # 01:37 UTC = 03:37 българско време (зимно)
+  workflow_dispatch: {}    # ръчно пускане от таб Actions
+
+permissions:
+  contents: write   # за файла last-run.txt (пази графика активен)
+  pages: write
+  id-token: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+      BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+      RAIDERIO_ACCESS_KEY: ${{ secrets.RAIDERIO_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Кеш (икони и дървета на талантите)
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: static-${{ github.run_id }}
+          restore-keys: static-
+
+      - name: Билдове за всички спекове и режими
+        run: node --max-old-space-size=6144 pipeline/run-all.mjs --maxPlayers 300 --force
+
+      - name: Икони и дървета на талантите
+        run: node pipeline/static.mjs
+
+      - name: Файлове за CDN
+        run: node pipeline/build-cdn.mjs
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      - name: Отбелязване на успешно пускане
+        run: |
+          date -u +%Y-%m-%dT%H:%M:%SZ > last-run.txt
+          git config user.name "nightly-bot"
+          git config user.email "nightly-bot@users.noreply.github.com"
+          git add last-run.txt
+          git commit -m "Nightly data $(date -u +%F)" || true
+          git push || true
