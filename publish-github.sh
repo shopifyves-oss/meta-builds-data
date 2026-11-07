@@ -31,6 +31,8 @@ if ! gh repo view "$OWNER/$REPO" >/dev/null 2>&1; then
   gh repo create "$REPO" --public --source . --remote origin --push
 else
   git remote get-url origin >/dev/null 2>&1 || git remote add origin "https://github.com/$OWNER/$REPO.git"
+  # Нощното обновяване записва last-run.txt в GitHub → първо вземаме тези промени
+  git pull --rebase --autostash origin main
   git push -u origin main
 fi
 
