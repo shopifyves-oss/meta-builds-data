@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, args, log } from './lib.mjs';
+import { decodeLoadout } from './talent-string.mjs';
 
 const opt = args({ region: 'us', out: 'public/v1', minSample: 10 });
 const OUT = path.join(ROOT, opt.out);
@@ -63,8 +64,8 @@ function modeEntry(d) {
       name: i.name, id: i.itemId, pct: r1(i.pct), icon: media.item[i.itemId] || undefined,
       quality: i.quality || media.itemQuality[i.itemId] || undefined,
     }))])),
-    enchants: Object.fromEntries(Object.entries(d.enchants || {}).map(([s, list]) => [s, list.map((e) => ({ name: e.name, pct: r1(e.pct) }))])),
-    gems: (d.gems || []).map((g) => ({ name: g.name, perPlayer: g.perPlayer, icon: media.item[g.gemId] || undefined })),
+    enchants: Object.fromEntries(Object.entries(d.enchants || {}).map(([s, list]) => [s, list.map((e) => ({ name: e.name, id: e.enchantId, pct: r1(e.pct) }))])),
+    gems: (d.gems || []).map((g) => ({ name: g.name, id: g.gemId, perPlayer: g.perPlayer, icon: media.item[g.gemId] || undefined })),
     players: (d.players || []).slice(0, 50).map((p) => ({ name: p.name, realm: p.realm, value: Math.round(p.score ?? p.rating), maxKey: p.maxKey })),
   };
 }
@@ -108,5 +109,74 @@ for (const t of Object.values(trees)) {
   const okHero = (n) => n.entries?.length;
   write(`trees/${t.specId}.json`, { specId: t.specId, class: t.class.filter(ok).map(slimNode), spec: t.spec.filter(ok).map(slimNode), hero: t.hero.map((h) => ({ id: h.id, name: h.name, nodes: h.nodes.filter(okHero).map(slimNode) })) });
 }
+// ---- Пълни дървета на класовете (за декодиране на import string) ----
+function guessHero(d, selNodes, heroSel) {
+  const score = {};
+  for (const id of selNodes) { const pk = d.picked.get(id); const v = pk && heroSel[`${id}:${pk.entry}`]; if (v) for (const [h, c] of Object.entries(v)) score[h] = (score[h] || 0) + c; }
+  return Object.entries(score).sort((a, b) => b[1] - a[1])[0]?.[0];
+}
+function guessHeroByCount(d, heroTrees) {
+  let best, bestN = -1;
+  for (const h of heroTrees) { const n = h.nodes.filter((x) => d.picked.has(x.id)).length; if (n > bestN) { bestN = n; best = h.name; } }
+  return best;
+}
+fs.mkdirSync(path.join(OUT, 'classes'), { recursive: true });
+const byClass = new Map();
+for (const s of Object.values(specs)) { if (!byClass.has(s.classId)) byClass.set(s.classId, []); byClass.get(s.classId).push(s); }
+for (const [classId, list] of byClass) {
+  const nodeMap = new Map();
+  for (const sp of list) {
+    const t = trees[sp.specId]; if (!t) continue;
+    for (const n of [...t.class, ...t.spec, ...t.hero.flatMap((h) => h.nodes)]) {
+      if (!nodeMap.has(n.id)) nodeMap.set(n.id, { id: n.id, maxRank: n.maxRank, entries: n.entries.map((e) => e.talentId) });
+    }
+  }
+  const nodes = [...nodeMap.values()].sort((a, b) => a.id - b.id);
+  const selNodes = nodes.filter((n) => !n.entries.length).map((n) => n.id);
+  const specInfo = {};
+  for (const sp of list) {
+    // Учим от суровите данни: кой възел/избор = кой hero tree и кои таланти никога не са в string-а
+    const rawFiles = fs.existsSync(path.join(ROOT, 'data', 'raw')) ? fs.readdirSync(path.join(ROOT, 'data', 'raw')).filter((f) => f.includes(`-${sp.class}-${sp.spec}-`)) : [];
+    const heroVotes = {}, absent = new Map(), holders = new Map(); let N = 0;
+    for (const f of rawFiles) {
+      const raw = readJson(path.join(ROOT, 'data', 'raw', f)); if (!raw) continue;
+      for (const p of raw.players) {
+        const lo = p.specializations?.specializations?.find((x) => x.specialization?.id === sp.specId)?.loadouts?.[0];
+        if (!lo?.talent_loadout_code) continue;
+        let d; try { d = decodeLoadout(lo.talent_loadout_code, nodes); } catch { continue; }
+        if (d.specId !== sp.specId) continue;
+        N++;
+        const hero = lo.selected_hero_talent_tree?.name;
+        for (const id of selNodes) { const pk = d.picked.get(id); if (pk && hero) { const k = `${id}:${pk.entry}`; (heroVotes[k] ||= {})[hero] = (heroVotes[k][hero] || 0) + 1; } }
+        for (const k of ['selected_class_talents', 'selected_spec_talents', 'selected_hero_talents']) for (const tl of lo[k] || []) {
+          const id = tl.tooltip?.talent?.id; if (!id) continue;
+          holders.set(id, (holders.get(id) || 0) + 1);
+          if (!d.talents.has(id)) absent.set(id, (absent.get(id) || 0) + 1);
+        }
+      }
+    }
+    // heroSel: "възел:избор" → {hero: брой}. Приложението сумира гласовете на избраните възли.
+    const heroSel = heroVotes;
+    // Проверка на точността върху същите данни
+    const heroTrees = (trees[sp.specId]?.hero || []).filter((h) => (sp.modes ? Object.values(sp.modes).some((m) => m.builds.some((b) => b.heroTree === h.name)) : true));
+    let hit = 0, hit2 = 0, tot = 0;
+    for (const f of rawFiles) {
+      const raw = readJson(path.join(ROOT, 'data', 'raw', f)); if (!raw) continue;
+      for (const p of raw.players) {
+        const lo = p.specializations?.specializations?.find((x) => x.specialization?.id === sp.specId)?.loadouts?.[0];
+        if (!lo?.talent_loadout_code || !lo.selected_hero_talent_tree) continue;
+        let d; try { d = decodeLoadout(lo.talent_loadout_code, nodes); } catch { continue; }
+        tot++; if (guessHero(d, selNodes, heroSel) === lo.selected_hero_talent_tree.name) hit++;
+        if (guessHeroByCount(d, heroTrees) === lo.selected_hero_talent_tree.name) hit2++;
+      }
+    }
+    const heroMethod = hit2 > hit ? 'count' : 'sel';
+    const acc = tot ? Math.max(hit, hit2) / tot : null;
+    if (acc !== null && acc < 0.97) log(`  ! ${sp.class}-${sp.spec}: hero tree от string-а е познат в ${Math.round(acc * 100)}% (sel ${Math.round(hit / tot * 100)}%, count ${Math.round(hit2 / tot * 100)}%)`);
+    specInfo[sp.specId] = { heroSel, heroMethod, heroTrees: heroTrees.map((h) => h.name), notInString: [...absent].filter(([id, c]) => c / (holders.get(id) || 1) >= 0.05 && c >= 3).map(([id]) => id), sample: N, heroAccuracy: acc === null ? null : Math.round(acc * 1000) / 10 };
+  }
+  write(`classes/${classId}.json`, { classId, nodes: nodes.map((n) => [n.id, n.maxRank, n.entries]), specs: specInfo });
+}
+
 fs.writeFileSync(path.join(ROOT, 'public', 'index.html'), '<!doctype html><meta charset="utf-8"><title>Meta Builds data</title><p>Meta Builds data CDN. Data from Raider.IO and Blizzard Entertainment. See <a href="v1/index.json">v1/index.json</a>.</p>');
 log(`CDN: ${Object.keys(specs).length} спека, ${Object.keys(trees).length} дървета, ${Math.round(bytes / 1024)} KB общо (скрити малки извадки: ${skipped}) → ${path.relative(ROOT, OUT)}`);

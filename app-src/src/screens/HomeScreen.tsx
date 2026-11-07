@@ -11,7 +11,7 @@ import { alpha, colors, font, radius, space } from '../theme';
 type Role = 'all' | 'tank' | 'healer' | 'dps';
 const hoursSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 36e5);
 
-export default function HomeScreen({ onOpen }: { onOpen: (cls: string, spec: string) => void }) {
+export default function HomeScreen({ onOpen, onCharacter }: { onOpen: (cls: string, spec: string) => void; onCharacter: () => void }) {
   const { data, error, loading, reload } = useCdn<IndexData>('index.json');
   const [role, setRole] = useState<Role>('all');
   const byId = useMemo(() => new Map((data?.specs || []).map((s) => [s.id, s])), [data]);
@@ -24,6 +24,16 @@ export default function HomeScreen({ onOpen }: { onOpen: (cls: string, spec: str
         <Text style={s.title}>{t.appName}</Text>
         <Text style={s.tagline}>{t.appTagline}</Text>
         {data ? <Text style={s.updated}>● {t.updated} {t.ago(hoursSince(data.generatedAt))} · {data.region.toUpperCase()}</Text> : null}
+        <Pressable onPress={onCharacter} style={({ pressed }) => [s.charCta, pressed && { opacity: 0.85 }]}>
+          <LinearGradient colors={[alpha(colors.gold, 0.22), alpha(colors.gold, 0.06)]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.charCtaInner}>
+            <Text style={s.charCtaIcon}>⚔</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={s.charCtaTitle}>Check my character</Text>
+              <Text style={s.charCtaSub}>Compare your talents & gear with the top players</Text>
+            </View>
+            <Text style={s.charCtaArrow}>›</Text>
+          </LinearGradient>
+        </Pressable>
         <View style={s.roles}>
           {(['all', 'tank', 'healer', 'dps'] as Role[]).map((r) => (
             <Pressable key={r} onPress={() => setRole(r)} style={[s.role, role === r && s.roleOn]}>
@@ -82,6 +92,12 @@ const s = StyleSheet.create({
   tagline: { color: colors.muted, fontSize: font.body, marginTop: space(1) },
   updated: { color: colors.good, fontSize: font.tiny, marginTop: space(3) },
   roles: { flexDirection: 'row', marginTop: space(5) },
+  charCta: { marginTop: space(5), borderRadius: radius.lg, borderWidth: 1, borderColor: alpha(colors.gold, 0.45), overflow: 'hidden' },
+  charCtaInner: { flexDirection: 'row', alignItems: 'center', padding: space(4) },
+  charCtaIcon: { color: colors.gold, fontSize: 24, marginRight: space(3) },
+  charCtaTitle: { color: colors.text, fontSize: font.h3, fontWeight: '800' },
+  charCtaSub: { color: colors.muted, fontSize: font.small, marginTop: 2 },
+  charCtaArrow: { color: colors.gold, fontSize: 28, fontWeight: '300' },
   role: { paddingVertical: space(2), paddingHorizontal: space(4), borderRadius: 999, borderWidth: 1, borderColor: colors.border, marginRight: space(2), backgroundColor: colors.surface },
   roleOn: { backgroundColor: colors.gold, borderColor: colors.gold },
   roleText: { color: colors.muted, fontSize: font.small, fontWeight: '700' },

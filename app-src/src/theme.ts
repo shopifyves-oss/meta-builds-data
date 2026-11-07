@@ -12,6 +12,7 @@ export const colors = {
   goldDim: '#9C8241',
   good: '#4CC38A',
   warn: '#E8B04A',
+  bad: '#E5534B',
 };
 export const quality: Record<string, string> = {
   POOR: '#9D9D9D', COMMON: '#FFFFFF', UNCOMMON: '#1EFF00', RARE: '#0070DD',

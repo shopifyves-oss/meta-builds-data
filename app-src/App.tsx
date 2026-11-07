@@ -4,9 +4,10 @@ import { BackHandler, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import HomeScreen from './src/screens/HomeScreen';
 import SpecScreen from './src/screens/SpecScreen';
+import CharacterScreen from './src/screens/CharacterScreen';
 import { colors } from './src/theme';
 
-type Route = { name: 'home' } | { name: 'spec'; cls: string; spec: string };
+type Route = { name: 'home' } | { name: 'character' } | { name: 'spec'; cls: string; spec: string; from?: 'character' };
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ name: 'home' });
@@ -26,9 +27,11 @@ export default function App() {
         <StatusBar style="light" />
         <View style={{ flex: 1 }}>
           {route.name === 'home' ? (
-            <HomeScreen onOpen={(cls, spec) => setRoute({ name: 'spec', cls, spec })} />
+            <HomeScreen onOpen={(cls, spec) => setRoute({ name: 'spec', cls, spec })} onCharacter={() => setRoute({ name: 'character' })} />
+          ) : route.name === 'character' ? (
+            <CharacterScreen onBack={() => setRoute({ name: 'home' })} onOpenSpec={(cls, spec) => setRoute({ name: 'spec', cls, spec, from: 'character' })} />
           ) : (
-            <SpecScreen key={`${route.cls}-${route.spec}`} cls={route.cls} spec={route.spec} onBack={() => setRoute({ name: 'home' })} />
+            <SpecScreen key={`${route.cls}-${route.spec}`} cls={route.cls} spec={route.spec} onBack={() => setRoute(route.from === 'character' ? { name: 'character' } : { name: 'home' })} />
           )}
         </View>
       </SafeAreaView>

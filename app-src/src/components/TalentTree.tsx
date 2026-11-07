@@ -19,7 +19,7 @@ function layout(nodes: TreeNode[]) {
   return { gx, gy, cols: Math.max(...gx) + 1, rows: Math.max(...gy) + 1 };
 }
 
-export default function TalentTree({ nodes, talents, accent }: { nodes: TreeNode[]; talents: Talent[]; accent: string }) {
+export default function TalentTree({ nodes, talents, accent, mine }: { nodes: TreeNode[]; talents: Talent[]; accent: string; mine?: Map<number, number> }) {
   const [w, setW] = useState(0);
   const [sel, setSel] = useState<number | null>(null);
 
@@ -60,12 +60,21 @@ export default function TalentTree({ nodes, talents, accent }: { nodes: TreeNode
             {nodes.map((n, i) => {
               const p = nodePct(n), { cx, cy } = pos(i);
               const top = [...n.entries].sort((a, b) => (pctById.get(b.id) || 0) - (pctById.get(a.id) || 0))[0];
-              const tier = p >= 50 ? 'core' : p >= 15 ? 'flex' : 'off';
-              const border = tier === 'core' ? colors.gold : tier === 'flex' ? accent : colors.border;
+              let tier = p >= 50 ? 'core' : p >= 15 ? 'flex' : 'off';
+              let border = tier === 'core' ? colors.gold : tier === 'flex' ? accent : colors.border;
+              if (mine) {
+                // Режим „сравнение“: зелено = имаш и е мета; червено = мета, но го нямаш; оранжево = имаш, но е рядко
+                const has = n.entries.some((e) => mine.has(e.id));
+                if (has && p >= 50) { tier = 'core'; border = colors.good; }
+                else if (has && p < 15) { tier = 'flex'; border = colors.warn; }
+                else if (has) { tier = 'core'; border = accent; }
+                else if (p >= 75) { tier = 'flex'; border = colors.bad; }
+                else { tier = 'off'; border = colors.border; }
+              }
               return (
                 <Pressable key={n.id} onPress={() => setSel(sel === n.id ? null : n.id)} hitSlop={4}
                   style={{ position: 'absolute', left: cx - size / 2, top: cy - size / 2, width: size, alignItems: 'center' }}>
-                  <View style={[tier === 'core' && { shadowColor: colors.gold, shadowOpacity: 0.6, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }, sel === n.id && s.selRing]}>
+                  <View style={[tier === 'core' && !mine && { shadowColor: colors.gold, shadowOpacity: 0.6, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }, sel === n.id && s.selRing]}>
                     <Icon name={top?.icon} size={size} border={border} round={false} fallback={top?.name} dim={tier === 'off' ? 0.28 : tier === 'flex' ? 0.85 : 1} />
                     {n.choice ? <View style={[s.choice, { borderColor: border }]} /> : null}
                   </View>
@@ -77,17 +86,27 @@ export default function TalentTree({ nodes, talents, accent }: { nodes: TreeNode
         ) : null}
       </View>
 
-      <View style={s.legend}>
-        <View style={[s.dot, { backgroundColor: colors.gold }]} /><Text style={s.legendText}>≥50% of top players</Text>
-        <View style={[s.dot, { backgroundColor: accent, marginLeft: space(3) }]} /><Text style={s.legendText}>15–50%</Text>
-      </View>
+      {mine ? (
+        <View style={[s.legend, { flexWrap: 'wrap' }]}>
+          {([[colors.good, 'You + meta'], [colors.bad, 'Missing (≥75%)'], [colors.warn, 'Rare pick (<15%)']] as const).map(([c, label]) => (
+            <View key={label} style={{ flexDirection: 'row', alignItems: 'center', marginRight: space(4), marginBottom: 4 }}>
+              <View style={[s.dot, { backgroundColor: c }]} /><Text style={s.legendText}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View style={s.legend}>
+          <View style={[s.dot, { backgroundColor: colors.gold }]} /><Text style={s.legendText}>≥50% of top players</Text>
+          <View style={[s.dot, { backgroundColor: accent, marginLeft: space(3) }]} /><Text style={s.legendText}>15–50%</Text>
+        </View>
+      )}
 
       {selNode ? (
         <View style={s.info}>
           {selNode.entries.map((e) => (
             <View key={e.id} style={s.infoRow}>
               <Icon name={e.icon} size={30} fallback={e.name} border={colors.border} />
-              <Text style={s.infoName}>{e.name}</Text>
+              <Text style={s.infoName}>{e.name}{mine ? (mine.has(e.id) ? '  · you ✓' : '') : ''}</Text>
               <Text style={s.infoPct}>{fmtPct(pctById.get(e.id) || 0)}</Text>
             </View>
           ))}

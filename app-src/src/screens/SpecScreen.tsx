@@ -5,6 +5,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 import { classBySlug } from '../classes';
 import Icon from '../components/Icon';
 import TalentTree from '../components/TalentTree';
+import CompareBuild from '../components/CompareBuild';
 import { Card, Chip, ErrorBox, Loading, PctRow, Segmented, Tabs, fmtPct } from '../components/ui';
 import { Build, ModeData, SpecData, TreeData, useCdn } from '../data';
 import { slotNames, slotOrder, t } from '../strings';
@@ -97,7 +98,8 @@ function SpecBody({ data, tree, c, specName, onBack }: { data: SpecData; tree?: 
 
       <View style={s.body}>
         {build?.lowSample ? <Text style={s.warn}>⚠ {t.lowSample} ({build.players} {t.players})</Text> : null}
-        {tab === 'talents' && build ? <TalentsTab build={build} md={md} tree={tree} accent={accent} isPvp={isPvp} /> : null}
+        {tab === 'talents' && build ? <TalentsTab build={build} md={md} tree={tree} accent={accent} isPvp={isPvp}
+          compare={<CompareBuild key={mode} classId={data.classId} specId={data.specId} builds={md.builds} tree={tree} accent={accent} />} /> : null}
         {tab === 'stats' ? <StatsTab stats={build?.stats ?? md.stats} accent={accent} /> : null}
         {tab === 'gear' ? <GearTab md={md} accent={accent} /> : null}
         {tab === 'enchants' ? <EnchantsTab md={md} accent={accent} /> : null}
@@ -118,7 +120,7 @@ function SampleLine({ md, isPvp, mode }: { md: ModeData; isPvp: boolean; mode: s
   );
 }
 
-function TalentsTab({ build, md, tree, accent, isPvp }: { build: Build; md: ModeData; tree?: TreeData; accent: string; isPvp: boolean }) {
+function TalentsTab({ build, md, tree, accent, isPvp, compare }: { build: Build; md: ModeData; tree?: TreeData; accent: string; isPvp: boolean; compare?: React.ReactNode }) {
   const [group, setGroup] = useState<Group>('spec');
   const [copied, setCopied] = useState(false);
   const [allFlex, setAllFlex] = useState(false);
@@ -153,6 +155,8 @@ function TalentsTab({ build, md, tree, accent, isPvp }: { build: Build; md: Mode
         <Text style={s.note}>{t.fromPlayer(r.fromPlayer)} · {r.within2 >= 40 ? t.consensusHint : t.variedBuilds}</Text>
         {r.diff > 0 ? <Text style={s.note}>{t.differs}: {[...r.extra.map((x) => `+ ${x}`), ...r.missing.map((x) => `− ${x}`)].join(', ')}</Text> : null}
       </View>
+
+      {compare}
 
       <Card title={tree ? t.tree : t.allTalents} hint={t.treeHint}>
         <View style={{ marginBottom: space(4) }}>
