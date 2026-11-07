@@ -35,7 +35,7 @@ else
 fi
 
 echo "→ Слагам ключовете като скрити Secrets (четат се от .env, не се показват)..."
-val() { grep -E "^$1=" .env | head -1 | cut -d= -f2- | tr -d '"'"'"; }
+val() { grep -E "^[[:space:]]*$1[[:space:]]*=" .env | head -1 | cut -d= -f2- | tr -d '"'"'"' \r\t'; }
 printf '%s' "$(val BLIZZARD_CLIENT_ID)" | gh secret set BLIZZARD_CLIENT_ID -R "$OWNER/$REPO"
 printf '%s' "$(val BLIZZARD_CLIENT_SECRET)" | gh secret set BLIZZARD_CLIENT_SECRET -R "$OWNER/$REPO"
 RIO="$(val RAIDERIO_ACCESS_KEY)"; [ -n "$RIO" ] && printf '%s' "$RIO" | gh secret set RAIDERIO_ACCESS_KEY -R "$OWNER/$REPO"
