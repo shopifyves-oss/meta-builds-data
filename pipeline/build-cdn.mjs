@@ -83,6 +83,11 @@ for (const mode of ['mplus', 'pvp']) {
     const key = mode === 'mplus' ? 'mplus' : d.meta.mode;
     specs[id] ||= { id, class: d.meta.class, spec: d.meta.spec, classId: d.meta.classId, specId: d.meta.specId, modes: {} };
     specs[id].modes[key] = modeEntry(d);
+    if (key === 'mplus') {
+      const rot = readJson(path.join(ROOT, 'data', 'rotations', `${id}.json`));
+      if (rot?.core) specs[id].modes[key].rotation = { fights: rot.fights, avgKey: rot.avgKey, updated: rot.generatedAt, core: rot.core, cooldowns: rot.cooldowns, utility: rot.utility || [], opener: rot.opener,
+        byHero: Object.fromEntries(Object.entries(rot.byHero || {}).map(([h, a]) => [h, { fights: a.fights, avgKey: a.avgKey, core: a.core, cooldowns: a.cooldowns, utility: a.utility || [], opener: a.opener }])) };
+    }
   }
 }
 

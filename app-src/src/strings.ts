@@ -13,7 +13,7 @@ export const t = {
   mplus: 'Mythic+',
   pvp: 'PvP',
   shuffle: 'Solo Shuffle',
-  tabs: { talents: 'Talents', stats: 'Stats', gear: 'Gear', enchants: 'Enchants', players: 'Players' },
+  tabs: { talents: 'Talents', rotation: 'Rotation', stats: 'Stats', gear: 'Gear', enchants: 'Enchants', players: 'Players' },
   players: 'players',
   top5: 'Top 5% by M+ score',
   topLadder: (n: number) => `Top ${n} on the ladder`,

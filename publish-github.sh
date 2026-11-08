@@ -41,6 +41,8 @@ val() { grep -E "^[[:space:]]*$1[[:space:]]*=" .env | head -1 | cut -d= -f2- | t
 printf '%s' "$(val BLIZZARD_CLIENT_ID)" | gh secret set BLIZZARD_CLIENT_ID -R "$OWNER/$REPO"
 printf '%s' "$(val BLIZZARD_CLIENT_SECRET)" | gh secret set BLIZZARD_CLIENT_SECRET -R "$OWNER/$REPO"
 RIO="$(val RAIDERIO_ACCESS_KEY)"; [ -n "$RIO" ] && printf '%s' "$RIO" | gh secret set RAIDERIO_ACCESS_KEY -R "$OWNER/$REPO"
+W1="$(val WCL_CLIENT_ID)"; [ -n "$W1" ] && printf '%s' "$W1" | gh secret set WCL_CLIENT_ID -R "$OWNER/$REPO"
+W2="$(val WCL_CLIENT_SECRET)"; [ -n "$W2" ] && printf '%s' "$W2" | gh secret set WCL_CLIENT_SECRET -R "$OWNER/$REPO"
 
 echo "→ Включвам GitHub Pages..."
 gh api -X POST "repos/$OWNER/$REPO/pages" -f build_type=workflow >/dev/null 2>&1 || \

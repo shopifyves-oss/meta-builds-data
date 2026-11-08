@@ -26,6 +26,8 @@ jobs:
       BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
       BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
       RAIDERIO_ACCESS_KEY: ${{ secrets.RAIDERIO_ACCESS_KEY }}
+      WCL_CLIENT_ID: ${{ secrets.WCL_CLIENT_ID }}
+      WCL_CLIENT_SECRET: ${{ secrets.WCL_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,6 +46,12 @@ jobs:
 
       - name: Икони и дървета на талантите
         run: node pipeline/static.mjs
+
+      - name: Ротации от Warcraft Logs
+        if: ${{ env.WCL_CLIENT_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 90
+        run: node pipeline/rotations.mjs
 
       - name: Файлове за CDN
         run: node pipeline/build-cdn.mjs

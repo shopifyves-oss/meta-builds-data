@@ -6,12 +6,13 @@ import { classBySlug } from '../classes';
 import Icon from '../components/Icon';
 import TalentTree from '../components/TalentTree';
 import CompareBuild from '../components/CompareBuild';
+import RotationTab from '../components/RotationTab';
 import { Card, Chip, ErrorBox, Loading, PctRow, Segmented, Tabs, fmtPct } from '../components/ui';
 import { Build, ModeData, SpecData, TreeData, useCdn } from '../data';
 import { slotNames, slotOrder, t } from '../strings';
 import { alpha, colors, font, mono, quality, radius, space } from '../theme';
 
-type Tab = 'talents' | 'stats' | 'gear' | 'enchants' | 'players';
+type Tab = 'talents' | 'rotation' | 'stats' | 'gear' | 'enchants' | 'players';
 type Group = 'class' | 'spec' | 'hero';
 
 const MODE_LABELS: Record<string, string> = { mplus: t.mplus, 'pvp-shuffle': t.shuffle, 'pvp-blitz': 'Blitz', 'pvp-2v2': '2v2', 'pvp-3v3': '3v3', 'pvp-rbg': 'RBG' };
@@ -68,7 +69,7 @@ function SpecBody({ data, tree, c, specName, onBack }: { data: SpecData; tree?: 
   const build: Build | undefined = md.builds[Math.min(heroIdx, md.builds.length - 1)];
   const isPvp = mode !== 'mplus';
   const pvpKeys = modeKeys.filter((k) => k !== 'mplus');
-  const changeMode = (m: string) => { setMode(m); setHeroIdx(0); };
+  const changeMode = (m: string) => { setMode(m); setHeroIdx(0); if (tab === 'rotation' && !data.modes[m]?.rotation) setTab('talents'); };
 
   return (
     <ScrollView stickyHeaderIndices={[1]} contentContainerStyle={{ paddingBottom: space(12) }}>
@@ -93,13 +94,14 @@ function SpecBody({ data, tree, c, specName, onBack }: { data: SpecData; tree?: 
       </Header>
 
       <View style={{ backgroundColor: colors.bg }}>
-        <Tabs accent={accent} value={tab} onChange={setTab} options={(['talents', 'stats', 'gear', 'enchants', 'players'] as Tab[]).map((k) => ({ value: k, label: t.tabs[k] }))} />
+        <Tabs accent={accent} value={tab} onChange={setTab} options={(['talents', 'rotation', 'stats', 'gear', 'enchants', 'players'] as Tab[]).filter((k) => k !== 'rotation' || md.rotation).map((k) => ({ value: k, label: t.tabs[k] }))} />
       </View>
 
       <View style={s.body}>
         {build?.lowSample ? <Text style={s.warn}>⚠ {t.lowSample} ({build.players} {t.players})</Text> : null}
         {tab === 'talents' && build ? <TalentsTab build={build} md={md} tree={tree} accent={accent} isPvp={isPvp}
           compare={<CompareBuild key={mode} classId={data.classId} specId={data.specId} builds={md.builds} tree={tree} accent={accent} />} /> : null}
+        {tab === 'rotation' && md.rotation ? (() => { const h = build && md.rotation.byHero?.[build.heroTree]; return <RotationTab rot={h ?? md.rotation} hero={h ? build!.heroTree : undefined} accent={accent} />; })() : null}
         {tab === 'stats' ? <StatsTab stats={build?.stats ?? md.stats} accent={accent} /> : null}
         {tab === 'gear' ? <GearTab md={md} accent={accent} /> : null}
         {tab === 'enchants' ? <EnchantsTab md={md} accent={accent} /> : null}
