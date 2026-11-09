@@ -65,6 +65,7 @@ function modeEntry(d) {
       quality: i.quality || media.itemQuality[i.itemId] || undefined,
     }))])),
     enchants: Object.fromEntries(Object.entries(d.enchants || {}).map(([s, list]) => [s, list.map((e) => ({ name: e.name, id: e.enchantId, pct: r1(e.pct) }))])),
+    weaponBuffs: d.weaponBuffs || [],
     gems: (d.gems || []).map((g) => ({ name: g.name, id: g.gemId, perPlayer: g.perPlayer, icon: media.item[g.gemId] || undefined })),
     players: (d.players || []).slice(0, 50).map((p) => ({ name: p.name, realm: p.realm, value: Math.round(p.score ?? p.rating), maxKey: p.maxKey })),
   };
@@ -86,6 +87,8 @@ for (const mode of ['mplus', 'pvp']) {
     if (key === 'mplus') {
       const rot = readJson(path.join(ROOT, 'data', 'rotations', `${id}.json`));
       if (rot?.core) specs[id].modes[key].rotation = { fights: rot.fights, avgKey: rot.avgKey, updated: rot.generatedAt, core: rot.core, cooldowns: rot.cooldowns, utility: rot.utility || [], opener: rot.opener,
+        dungeons: (rot.dungeons || []).map((d) => ({ ...d, more: d.more.map((x) => ({ ...x, icon: sp(x.spellId) })), less: d.less.map((x) => ({ ...x, icon: sp(x.spellId) })) })),
+        consumables: rot.consumables || null,
         byHero: Object.fromEntries(Object.entries(rot.byHero || {}).map(([h, a]) => [h, { fights: a.fights, avgKey: a.avgKey, core: a.core, cooldowns: a.cooldowns, utility: a.utility || [], opener: a.opener }])) };
     }
   }
@@ -97,13 +100,15 @@ fs.mkdirSync(path.join(OUT, 'trees'), { recursive: true });
 let bytes = 0;
 const write = (rel, obj) => { const s = JSON.stringify(obj); fs.writeFileSync(path.join(OUT, rel), s); bytes += s.length; };
 
+// Кратък подпис на мета билда (най-популярния hero tree + препоръчания string) → приложението разбира кога метата се е сменила
+const sig = (b) => { if (!b) return undefined; const core = b.talents.filter((t) => t.pct >= 50).map((t) => `${t.id}:${t.rank}`).sort().join(','); const str = `${b.heroTree}|${core}`; let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
 const index = { version: 1, generatedAt: new Date().toISOString(), region: opt.region, specs: [] };
 for (const s of Object.values(specs)) {
   const icon = media.spec[s.specId] || undefined;
   write(`specs/${s.id}.json`, { ...s, icon, classIcon: media.cls[s.classId] || undefined, hasTree: !!trees[s.specId] });
   index.specs.push({
     id: s.id, class: s.class, spec: s.spec, specId: s.specId, classId: s.classId, icon, classIcon: media.cls[s.classId] || undefined,
-    modes: Object.fromEntries(Object.entries(s.modes).map(([k, m]) => [k, { sampleSize: m.meta.sampleSize, updated: m.meta.updated, heroTrees: m.builds.map((b) => ({ name: b.heroTree, pct: b.pct, icon: b.heroIcon })) }])),
+    modes: Object.fromEntries(Object.entries(s.modes).map(([k, m]) => [k, { sampleSize: m.meta.sampleSize, updated: m.meta.updated, sig: sig(m.builds[0]), heroTrees: m.builds.map((b) => ({ name: b.heroTree, pct: b.pct, icon: b.heroIcon })) }])),
   });
 }
 write('index.json', index);

@@ -7,7 +7,8 @@ import { classBySlug } from '../classes';
 import CompareResult from '../components/CompareResult';
 import Icon from '../components/Icon';
 import { Card, Segmented, fmtPct } from '../components/ui';
-import { SpecData, TreeData, useCdn } from '../data';
+import { IndexData, SpecData, TreeData, useCdn } from '../data';
+import { charKey, removeChar, saveChar, updateCharIfSaved, useMyChars } from '../lib/myChars';
 import { checkGear, rioQuality, RioItem } from '../lib/compare';
 import { ClassInfo, decodeLoadout, detectHero } from '../lib/talentString';
 import { slotNames, slotOrder, t } from '../strings';
@@ -23,7 +24,7 @@ type Profile = {
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
 const LAST = 'lastCharacter';
 
-export default function CharacterScreen({ onBack, onOpenSpec }: { onBack: () => void; onOpenSpec: (cls: string, spec: string) => void }) {
+export default function CharacterScreen({ onBack, onOpenSpec, initial, onSearched }: { onBack: () => void; onOpenSpec: (cls: string, spec: string) => void; initial?: { region: string; realm: string; name: string }; onSearched?: (who: { region: string; realm: string; name: string }) => void }) {
   const [region, setRegion] = useState<Region>('us');
   const [realm, setRealm] = useState('');
   const [name, setName] = useState('');
@@ -31,18 +32,23 @@ export default function CharacterScreen({ onBack, onOpenSpec }: { onBack: () => 
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
 
-  useEffect(() => { AsyncStorage.getItem(LAST).then((s) => { if (s) { const v = JSON.parse(s); setRegion(v.region); setRealm(v.realm); setName(v.name); } }).catch(() => {}); }, []);
+  useEffect(() => {
+    if (initial) { setRegion(initial.region as Region); setRealm(initial.realm); setName(initial.name); search(initial); return; }
+    AsyncStorage.getItem(LAST).then((s) => { if (s) { const v = JSON.parse(s); setRegion(v.region); setRealm(v.realm); setName(v.name); } }).catch(() => {});
+  }, []);
 
-  const search = async () => {
-    if (!name.trim() || !realm.trim()) { setError('Enter your character name and realm.'); return; }
+  const search = async (who?: { region: string; realm: string; name: string }) => {
+    const rg = who?.region ?? region, rl = (who?.realm ?? realm).trim(), nm = (who?.name ?? name).trim();
+    if (!nm || !rl) { setError('Enter your character name and realm.'); return; }
     setLoading(true); setError(null); setProfile(null);
     try {
-      const url = `https://raider.io/api/v1/characters/profile?region=${region}&realm=${encodeURIComponent(realm.trim())}&name=${encodeURIComponent(name.trim())}&fields=gear,talents,mythic_plus_scores_by_season:current`;
+      const url = `https://raider.io/api/v1/characters/profile?region=${rg}&realm=${encodeURIComponent(rl)}&name=${encodeURIComponent(nm)}&fields=gear,talents,mythic_plus_scores_by_season:current`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(res.status === 400 || res.status === 404 ? 'Character not found on Raider.IO. Check the name and realm (the character needs a Mythic+ key this season).' : `Raider.IO error ${res.status}`);
       const p = (await res.json()) as Profile;
       setProfile(p);
-      AsyncStorage.setItem(LAST, JSON.stringify({ region, realm: realm.trim(), name: name.trim() })).catch(() => {});
+      AsyncStorage.setItem(LAST, JSON.stringify({ region: rg, realm: rl, name: nm })).catch(() => {});
+      onSearched?.({ region: rg, realm: rl, name: nm });
     } catch (e: any) { setError(e?.message ?? 'Something went wrong'); }
     setLoading(false);
   };
@@ -57,18 +63,18 @@ export default function CharacterScreen({ onBack, onOpenSpec }: { onBack: () => 
           <Segmented accent={colors.gold} value={region} onChange={setRegion} options={[{ value: 'us', label: 'US' }, { value: 'eu', label: 'EU' }]} />
         </View>
         <TextInput value={name} onChangeText={setName} placeholder="Character name" placeholderTextColor={colors.faint} style={s.input} autoCapitalize="words" autoCorrect={false} returnKeyType="next" />
-        <TextInput value={realm} onChangeText={setRealm} placeholder="Realm (e.g. Area 52)" placeholderTextColor={colors.faint} style={s.input} autoCorrect={false} returnKeyType="search" onSubmitEditing={search} />
-        <Pressable onPress={search} style={({ pressed }) => [s.searchBtn, { opacity: pressed || loading ? 0.8 : 1 }]}>
+        <TextInput value={realm} onChangeText={setRealm} placeholder="Realm (e.g. Area 52)" placeholderTextColor={colors.faint} style={s.input} autoCorrect={false} returnKeyType="search" onSubmitEditing={() => search()} />
+        <Pressable onPress={() => search()} style={({ pressed }) => [s.searchBtn, { opacity: pressed || loading ? 0.8 : 1 }]}>
           {loading ? <ActivityIndicator color="#14110A" /> : <Text style={s.searchText}>Check character</Text>}
         </Pressable>
         {error ? <Text style={s.error}>{error}</Text> : null}
       </LinearGradient>
-      {profile ? <Report profile={profile} onOpenSpec={onOpenSpec} /> : null}
+      {profile ? <Report profile={profile} region={initial?.region ?? region} realmInput={initial?.realm ?? realm} onOpenSpec={onOpenSpec} /> : null}
     </ScrollView>
   );
 }
 
-function Report({ profile: p, onOpenSpec }: { profile: Profile; onOpenSpec: (cls: string, spec: string) => void }) {
+function Report({ profile: p, region, realmInput, onOpenSpec }: { profile: Profile; region: string; realmInput: string; onOpenSpec: (cls: string, spec: string) => void }) {
   const cls = slug(p.class), spec = slug(p.active_spec_name);
   const c = classBySlug(cls);
   const accent = c?.color ?? colors.gold;
@@ -76,6 +82,16 @@ function Report({ profile: p, onOpenSpec }: { profile: Profile; onOpenSpec: (cls
   const tree = useCdn<TreeData>(sd.data?.hasTree ? `trees/${sd.data.specId}.json` : null);
   const info = useCdn<ClassInfo>(sd.data ? `classes/${sd.data.classId}.json` : null);
   const md = sd.data?.modes.mplus;
+  const idx = useCdn<IndexData>('index.json');
+  const metaSig = idx.data?.specs.find((x) => x.id === `${cls}-${spec}`)?.modes.mplus?.sig;
+  const mine = useMyChars();
+  const who = { region, realm: realmInput.trim(), name: p.name };
+  const saved = mine.some((x) => charKey(x) === charKey(who));
+  const [matchPct, setMatchPct] = useState<number | undefined>();
+  const entry = () => ({ ...who, cls, spec, className: p.class, specName: p.active_spec_name, thumb: p.thumbnail_url,
+    score: Math.round(p.mythic_plus_scores_by_season?.[0]?.scores?.all ?? 0), matchPct, checkedAt: new Date().toISOString(), metaSig });
+  // Ако героят е запазен — обнови score/съвпадение/подписа на метата при всяка проверка
+  useEffect(() => { updateCharIfSaved(entry()); }, [matchPct, metaSig, p.name]);
   const score = Math.round(p.mythic_plus_scores_by_season?.[0]?.scores?.all ?? 0);
 
   let decoded: { talents: Map<number, number>; hero?: string } | null = null, talentError: string | null = null;
@@ -103,6 +119,9 @@ function Report({ profile: p, onOpenSpec }: { profile: Profile; onOpenSpec: (cls
           <Text style={s.scoreLabel}>M+ score</Text>
         </View>
       </View>
+      <Pressable onPress={() => (saved ? removeChar(who) : saveChar(entry()))} style={[s.saveBtn, saved && { borderColor: colors.gold, backgroundColor: alpha(colors.gold, 0.1) }]}>
+        <Text style={[s.saveText, saved && { color: colors.gold }]}>{saved ? '★ Saved to My characters — tap to remove' : '☆ Save to My characters'}</Text>
+      </Pressable>
 
       {md?.meta.cutoffScore ? (
         <View style={[s.banner, { borderColor: score >= md.meta.cutoffScore ? colors.good : colors.border }]}>
@@ -118,7 +137,7 @@ function Report({ profile: p, onOpenSpec }: { profile: Profile; onOpenSpec: (cls
       {sd.error ? <Text style={s.error}>No meta data for {p.active_spec_name} {p.class} yet.</Text> : null}
 
       {md && decoded ? (
-        <CompareResult talents={decoded.talents} builds={md.builds} detectedHero={decoded.hero} tree={tree.data} ignore={info.data?.specs[String(sd.data!.specId)]?.notInString ?? []} accent={accent} />
+        <CompareResult talents={decoded.talents} builds={md.builds} detectedHero={decoded.hero} tree={tree.data} ignore={info.data?.specs[String(sd.data!.specId)]?.notInString ?? []} accent={accent} onResult={setMatchPct} />
       ) : talentError ? <Text style={s.error}>Couldn't read talents: {talentError}</Text> : null}
 
       {gear.length ? (
@@ -168,6 +187,8 @@ const s = StyleSheet.create({
   charRealm: { color: colors.muted, fontSize: font.tiny, marginTop: 2 },
   scoreBig: { color: colors.gold, fontSize: 24, fontWeight: '800', fontVariant: ['tabular-nums'] },
   scoreLabel: { color: colors.faint, fontSize: font.tiny },
+  saveBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: space(3), alignItems: 'center', marginBottom: space(3), backgroundColor: colors.surface },
+  saveText: { color: colors.text, fontWeight: '700', fontSize: font.small },
   banner: { borderWidth: 1, borderRadius: radius.md, padding: space(3), marginBottom: space(3), backgroundColor: colors.surface },
   bannerText: { color: colors.text, fontSize: font.small, lineHeight: 18 },
   gearRow: { flexDirection: 'row', paddingVertical: space(2) + 2, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },

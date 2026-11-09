@@ -7,6 +7,8 @@ import Icon from '../components/Icon';
 import TalentTree from '../components/TalentTree';
 import CompareBuild from '../components/CompareBuild';
 import RotationTab from '../components/RotationTab';
+import DungeonTalents from '../components/DungeonTalents';
+import Consumables from '../components/Consumables';
 import { Card, Chip, ErrorBox, Loading, PctRow, Segmented, Tabs, fmtPct } from '../components/ui';
 import { Build, ModeData, SpecData, TreeData, useCdn } from '../data';
 import { slotNames, slotOrder, t } from '../strings';
@@ -171,6 +173,8 @@ function TalentsTab({ build, md, tree, accent, isPvp, compare }: { build: Build;
         )}
       </Card>
 
+      {!isPvp && md.rotation?.dungeons?.length ? <DungeonTalents dungeons={md.rotation.dungeons} accent={accent} /> : null}
+
       {isPvp && md.pvpTalents?.length ? (
         <Card title={t.pvpTalents}>
           {md.pvpTalents.filter((p) => p.pct >= 3).map((p) => <PctRow key={p.name} icon={p.icon ?? ''} label={p.name} pct={p.pct} accent={accent} strong={p.pct >= 50} />)}
@@ -236,6 +240,7 @@ function EnchantsTab({ md, accent }: { md: ModeData; accent: string }) {
           </View>
         ))}
       </Card>
+      <Consumables md={md} />
       <Card title={t.gems}>
         {md.gems.filter((g) => g.perPlayer >= 0.2).map((g) => (
           <View key={g.name} style={s.gemRow}>

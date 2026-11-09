@@ -5,16 +5,20 @@ import { CLASSES } from '../classes';
 import Icon from '../components/Icon';
 import { ErrorBox, Loading } from '../components/ui';
 import { IndexData, useCdn } from '../data';
+import { charKey, MyChar, useMyChars } from '../lib/myChars';
+import { Image } from 'expo-image';
+import { classBySlug } from '../classes';
 import { t } from '../strings';
 import { alpha, colors, font, radius, space } from '../theme';
 
 type Role = 'all' | 'tank' | 'healer' | 'dps';
 const hoursSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 36e5);
 
-export default function HomeScreen({ onOpen, onCharacter }: { onOpen: (cls: string, spec: string) => void; onCharacter: () => void }) {
+export default function HomeScreen({ onOpen, onCharacter }: { onOpen: (cls: string, spec: string) => void; onCharacter: (who?: MyChar) => void }) {
   const { data, error, loading, reload } = useCdn<IndexData>('index.json');
   const [role, setRole] = useState<Role>('all');
   const byId = useMemo(() => new Map((data?.specs || []).map((s) => [s.id, s])), [data]);
+  const mine = useMyChars();
 
   return (
     <ScrollView style={s.screen} contentContainerStyle={{ paddingBottom: space(12) }}
@@ -24,7 +28,7 @@ export default function HomeScreen({ onOpen, onCharacter }: { onOpen: (cls: stri
         <Text style={s.title}>{t.appName}</Text>
         <Text style={s.tagline}>{t.appTagline}</Text>
         {data ? <Text style={s.updated}>● {t.updated} {t.ago(hoursSince(data.generatedAt))} · {data.region.toUpperCase()}</Text> : null}
-        <Pressable onPress={onCharacter} style={({ pressed }) => [s.charCta, pressed && { opacity: 0.85 }]}>
+        <Pressable onPress={() => onCharacter()} style={({ pressed }) => [s.charCta, pressed && { opacity: 0.85 }]}>
           <LinearGradient colors={[alpha(colors.gold, 0.22), alpha(colors.gold, 0.06)]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.charCtaInner}>
             <Text style={s.charCtaIcon}>⚔</Text>
             <View style={{ flex: 1 }}>
@@ -42,6 +46,35 @@ export default function HomeScreen({ onOpen, onCharacter }: { onOpen: (cls: stri
           ))}
         </View>
       </LinearGradient>
+
+      {mine.length ? (
+        <View style={{ marginBottom: space(4) }}>
+          <Text style={s.sectionTitle}>My characters</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space(4) }}>
+            {mine.map((c) => {
+              const col = classBySlug(c.cls)?.color ?? colors.gold;
+              const sig = byId.get(`${c.cls}-${c.spec}`)?.modes.mplus?.sig;
+              const changed = !!(sig && c.metaSig && sig !== c.metaSig);
+              return (
+                <Pressable key={charKey(c)} onPress={() => onCharacter(c)} style={({ pressed }) => [s.myCard, { borderColor: alpha(col, 0.45) }, pressed && { opacity: 0.85 }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {c.thumb ? <Image source={{ uri: c.thumb }} style={s.myThumb} /> : <View style={[s.myThumb, { backgroundColor: colors.surface2 }]} />}
+                    <View style={{ marginLeft: space(2), flex: 1 }}>
+                      <Text style={s.myName} numberOfLines={1}>{c.name}</Text>
+                      <Text style={[s.mySpec, { color: col }]} numberOfLines={1}>{c.specName}</Text>
+                    </View>
+                  </View>
+                  <View style={s.myStats}>
+                    <View><Text style={s.myVal}>{c.score ?? '—'}</Text><Text style={s.myLbl}>score</Text></View>
+                    <View><Text style={[s.myVal, { color: (c.matchPct ?? 0) >= 90 ? colors.good : (c.matchPct ?? 0) >= 75 ? colors.warn : colors.text }]}>{c.matchPct != null ? `${c.matchPct}%` : '—'}</Text><Text style={s.myLbl}>talents</Text></View>
+                  </View>
+                  {changed ? <Text style={s.myBadge}>● New meta build</Text> : <Text style={s.myRealm} numberOfLines={1}>{c.realm} · {c.region.toUpperCase()}</Text>}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
 
       {!data && loading ? <Loading /> : null}
       {!data && error ? <ErrorBox message={error} onRetry={reload} /> : null}
@@ -109,5 +142,15 @@ const s = StyleSheet.create({
   specName: { color: colors.text, fontSize: font.body, fontWeight: '700' },
   specSub: { color: colors.muted, fontSize: font.tiny, marginTop: 2 },
   roleTag: { color: colors.faint, fontSize: font.tiny, fontWeight: '700', letterSpacing: 1 },
+  sectionTitle: { color: colors.text, fontSize: font.h3, fontWeight: '800', paddingHorizontal: space(4), marginBottom: space(3) },
+  myCard: { width: 176, backgroundColor: colors.surface, borderWidth: 1, borderRadius: radius.lg, padding: space(3), marginRight: space(3) },
+  myThumb: { width: 36, height: 36, borderRadius: 8 },
+  myName: { color: colors.text, fontSize: font.body, fontWeight: '800' },
+  mySpec: { fontSize: font.tiny, fontWeight: '700', marginTop: 1 },
+  myStats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: space(3) },
+  myVal: { color: colors.text, fontSize: font.h3, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  myLbl: { color: colors.faint, fontSize: font.tiny },
+  myBadge: { color: colors.gold, fontSize: font.tiny, fontWeight: '800', marginTop: space(2) },
+  myRealm: { color: colors.faint, fontSize: font.tiny, marginTop: space(2) },
   attr: { color: colors.faint, fontSize: font.tiny, textAlign: 'center', marginTop: space(6) },
 });

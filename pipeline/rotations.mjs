@@ -9,7 +9,9 @@ import { ROOT, loadEnv, args, log, sleep, writeOut } from './lib.mjs';
 import { CLASS_SPECS } from './wcl-specs.mjs';
 
 loadEnv();
-const opt = args({ specs: 'all', perDungeon: 3, maxFights: 20, probe: false, minPoints: 300 });
+const opt = args({ specs: 'all', perDungeon: 3, maxFights: 20, talentLogs: 10, maxMinutes: 85, probe: false, minPoints: 300 });
+const T0 = Date.now();
+const timeUp = () => (Date.now() - T0) / 60000 > opt.maxMinutes;
 const CACHE = path.join(ROOT, 'data', 'cache', 'wcl');
 fs.mkdirSync(CACHE, { recursive: true });
 
@@ -84,9 +86,59 @@ async function fightCasts(code, fightID, playerName) {
   const pd = rep.playerDetails?.data?.playerDetails || {};
   const me = [...(pd.tanks || []), ...(pd.healers || []), ...(pd.dps || [])].find((x) => x.name === playerName);
   const talentNodes = (me?.combatantInfo?.talentTree || []).map((t) => t.nodeID).filter(Boolean);
-  const out = { durationSec: Math.round((fight.endTime - fight.startTime) / 1000), keyLevel: fight.keystoneLevel, casts, abilities, talentNodes };
+  const out = { durationSec: Math.round((fight.endTime - fight.startTime) / 1000), keyLevel: fight.keystoneLevel, casts, abilities, talentNodes, potionUse: me?.potionUse ?? null, healthstoneUse: me?.healthstoneUse ?? null };
   fs.writeFileSync(file, JSON.stringify(out));
   return out;
+}
+
+// ---------- Таланти на играч в лог (само playerDetails, без кастове) ----------
+async function fightTalents(code, fightID, playerName) {
+  const castFile = path.join(CACHE, `${code}-${fightID}-${playerName}.json`);
+  if (fs.existsSync(castFile)) { const c = JSON.parse(fs.readFileSync(castFile, 'utf8')); if (c.talentNodes) return c; }
+  const file = path.join(CACHE, `pd-${code}-${fightID}-${playerName}.json`);
+  if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  const d = await gql(`query($code: String!, $f: [Int]) { reportData { report(code: $code) { playerDetails(fightIDs: $f, includeCombatantInfo: true) } } }`, { code, f: [fightID] });
+  const pd = d.reportData?.report?.playerDetails?.data?.playerDetails || {};
+  const me = [...(pd.tanks || []), ...(pd.healers || []), ...(pd.dps || [])].find((x) => x.name === playerName);
+  const out = { talentNodes: (me?.combatantInfo?.talentTree || []).map((t) => t.nodeID).filter(Boolean), potionUse: me?.potionUse ?? null, healthstoneUse: me?.healthstoneUse ?? null };
+  fs.writeFileSync(file, JSON.stringify(out));
+  return out;
+}
+
+// Таланти по подземие: колко често се взима всеки възел тук спрямо всички подземия
+function dungeonTalents(byDungeon, specSlug) {
+  const tree = treeFor(specSlug);
+  if (!tree) return [];
+  const heroIds = new Set(tree.hero.flatMap((h) => h.nodes.map((n) => n.id)));
+  const nodes = [...tree.class, ...tree.spec].filter((n) => n.entries?.length && !heroIds.has(n.id));
+  const all = Object.values(byDungeon).flat();
+  if (all.length < 10) return [];
+  const rate = (logs, id) => logs.filter((l) => l.talentNodes.includes(id)).length / logs.length;
+  const out = [];
+  for (const [dungeon, logs] of Object.entries(byDungeon)) {
+    if (logs.length < 5) continue;
+    const diffs = nodes.map((n) => ({ nodeId: n.id, name: n.entries.map((e) => e.name).join(' / '), spellId: n.entries[0]?.spellId, here: rate(logs, n.id), overall: rate(all, n.id) }))
+      .map((x) => ({ ...x, delta: x.here - x.overall }));
+    const pick = (arr) => arr.slice(0, 6).map((x) => ({ nodeId: x.nodeId, name: x.name, spellId: x.spellId, here: Math.round(x.here * 100), overall: Math.round(x.overall * 100) }));
+    out.push({ dungeon, logs: logs.length,
+      more: pick(diffs.filter((x) => x.delta >= 0.2).sort((a, b) => b.delta - a.delta)),
+      less: pick(diffs.filter((x) => x.delta <= -0.2).sort((a, b) => a.delta - b.delta)) });
+  }
+  return out;
+}
+
+// Консумативи от логовете с кастове
+function consumables(fights) {
+  const N = fights.length; if (!N) return null;
+  const pots = new Map(), heal = new Map();
+  for (const f of fights) {
+    const seen = new Map();
+    for (const [, id] of f.casts) { const a = f.abilities[id]; if (!a || !/potion|healthstone/i.test(a.name)) continue; seen.set(a.name, { n: (seen.get(a.name)?.n || 0) + 1, icon: a.icon }); }
+    for (const [name, v] of seen) { const m = /healing|health/i.test(name) ? heal : pots; const e = m.get(name) || { name, icon: v.icon, runs: 0, uses: 0 }; e.runs++; e.uses += v.n; m.set(name, e); }
+  }
+  const fmt = (m) => [...m.values()].sort((a, b) => b.runs - a.runs).slice(0, 3).map((e) => ({ name: e.name, icon: e.icon, usage: Math.round((e.runs / N) * 100), perRun: Math.round((e.uses / e.runs) * 10) / 10 }));
+  const avg = (k) => { const v = fights.map((f) => f[k]).filter((x) => typeof x === 'number'); return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null; };
+  return { combatPotions: fmt(pots), healing: fmt(heal), potionsPerRun: avg('potionUse'), healthstonesPerRun: avg('healthstoneUse') };
 }
 
 // ---------- Агрегиране ----------
@@ -136,6 +188,12 @@ export function aggregate(input) {
   return { fights: N, avgKey: Math.round(fights.reduce((s, f) => s + (f.keyLevel || 0), 0) / N), core, cooldowns, utility, opener };
 }
 
+function treeFor(specSlug) {
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'mplus', `${specSlug}-us.json`), 'utf8')).meta;
+    return JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'cache', 'trees', `${meta.specId}.json`), 'utf8'));
+  } catch { return null; }
+}
 // Hero trees на спека (възли) от кеша на дърветата
 function heroTreesFor(specSlug) {
   const meta = (() => { try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'mplus', `${specSlug}-us.json`), 'utf8')).meta; } catch { return null; } })();
@@ -160,13 +218,15 @@ async function main() {
   else if (opt.specs !== 'all') { const want = new Set(String(opt.specs).split(',')); specs = specs.filter((s) => want.has(s.id)); }
 
   for (const s of specs) {
-    const picks = [];
+    if (timeUp()) { log(`  Времето изтече — останалите спекове при следващото пускане (логовете са в кеша)`); break; }
+    const picks = [], talentPicks = [];
     for (const enc of zone.encounters) {
       const d = await gql(`query($id: Int!, $c: String, $s: String) { worldData { encounter(id: $id) { characterRankings(className: $c, specName: $s) } } }`,
         { id: enc.id, c: s.wclClass, s: s.wclSpec });
       const ranks = d.worldData.encounter?.characterRankings?.rankings || [];
       if (opt.probe && !picks.length) fs.writeFileSync(path.join(ROOT, 'data', 'cache', 'wcl-probe.json'), JSON.stringify({ zone, sampleRankings: ranks.slice(0, 3) }, null, 1));
       for (const r of ranks.slice(0, opt.perDungeon)) if (r.report?.code) picks.push({ code: r.report.code, fightID: r.report.fightID, name: r.name, dungeon: enc.name });
+      for (const r of ranks.slice(0, opt.talentLogs)) if (r.report?.code) talentPicks.push({ code: r.report.code, fightID: r.report.fightID, name: r.name, dungeon: enc.name });
     }
     const fights = [];
     for (const p of picks.slice(0, opt.maxFights)) {
@@ -189,13 +249,22 @@ async function main() {
       for (const h of heroTrees) { const n = h.nodes.filter((id) => nodes.has(id)).length; if (n > bestN) { bestN = n; best = h.name; } }
       f.hero = best;
     }
+    // Таланти по подземие (евтини заявки; кешират се)
+    const byDungeon = {};
+    for (const p of talentPicks) {
+      if (timeUp()) break;
+      try { if (pointsLeft < opt.minPoints) await checkPoints(); const t = await fightTalents(p.code, p.fightID, p.name); if (t?.talentNodes?.length) (byDungeon[p.dungeon] ||= []).push(t); }
+      catch (e) { log(`  ! таланти ${p.code}/${p.fightID}: ${e.message.split('\n')[0]}`); }
+    }
+    const dungeons = dungeonTalents(byDungeon, s.id);
+    const cons = consumables(fights);
     const agg = aggregate(fights);
     const byHero = {};
     for (const name of [...new Set(fights.map((f) => f.hero).filter(Boolean))]) {
       const fs2 = fights.filter((f) => f.hero === name);
       if (fs2.length >= 3) byHero[name] = aggregate(fs2);
     }
-    writeOut('rotations', `${s.id}.json`, { spec: s.id, generatedAt: new Date().toISOString(), source: 'Warcraft Logs', ...agg, byHero, logs: fights.map((f) => ({ player: f.player, dungeon: f.dungeon, key: f.keyLevel, sec: f.durationSec, hero: f.hero })) });
+    writeOut('rotations', `${s.id}.json`, { spec: s.id, generatedAt: new Date().toISOString(), source: 'Warcraft Logs', ...agg, byHero, dungeons, consumables: cons, logs: fights.map((f) => ({ player: f.player, dungeon: f.dungeon, key: f.keyLevel, sec: f.durationSec, hero: f.hero })) });
     log(`  ${s.id}: ${fights.length} лога (${Object.entries(byHero).map(([h, a]) => `${h} ${a.fights}`).join(', ') || 'без разбивка'}), основни: ${agg.core.slice(0, 4).map((a) => `${a.name} ${a.cpm}/мин`).join(', ')}`);
   }
 }

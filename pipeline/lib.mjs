@@ -191,7 +191,7 @@ export async function fetchBlizzardDetails(region, players, concurrency = 8) {
 export function aggregate(players, specId) {
   const N = players.length;
   const builds = new Counter(), talents = new Counter(), pvpTalents = new Counter(), hero = new Counter();
-  const slots = {}, enchants = new Counter(), gems = new Counter();
+  const slots = {}, enchants = new Counter(), gems = new Counter(), tempEnch = new Counter();
   let withTalents = 0, gearN = 0;
   for (const c of players) {
     const active = c.specializations?.specializations?.find((x) => x.specialization?.id === specId);
@@ -216,7 +216,8 @@ export function aggregate(players, specId) {
       if (!slot || SKIP_SLOTS.has(slot)) continue;
       (slots[slot] ||= new Counter()).add(it.name, { itemId: it.item?.id, quality: it.quality });
       for (const en of it.enchantments || []) {
-        if (en.enchantment_slot?.type === 'TEMPORARY' || !en.display_string) continue;
+        if (en.enchantment_slot?.type === 'TEMPORARY') { if (en.display_string && (slot === 'main_hand' || slot === 'off_hand')) tempEnch.add(clean(en.display_string).replace(/\s*\(\d+ (min|sec|hour)s?\)$/i, '')); continue; }
+        if (!en.display_string) continue;
         enchants.add(`${slot}|${clean(en.display_string)}`, { slot, name: clean(en.display_string), enchantId: en.enchantment_id });
       }
       for (const s of it.sockets || []) if (s.item?.name) gems.add(s.item.name, { gemId: s.item.id });
@@ -239,6 +240,7 @@ export function aggregate(players, specId) {
     gear: Object.fromEntries(Object.entries(slots).map(([s, cn]) => [s, cn.top(GN, 3).map((i) => ({ name: i.key, itemId: i.itemId, quality: i.quality, pct: i.pct }))])),
     enchants: enchBySlot,
     gems: gems.top(GN, 8).map((g) => ({ name: g.key, gemId: g.gemId, perPlayer: Math.round((g.count / GN) * 10) / 10 })),
+    weaponBuffs: tempEnch.top(GN, 4).map((w) => ({ name: w.key, pct: w.pct })),
   };
 }
 

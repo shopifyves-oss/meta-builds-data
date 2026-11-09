@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Build, TreeData } from '../data';
 import { compareTalents, TalentDiff } from '../lib/compare';
@@ -10,13 +10,15 @@ import { Card, Chip, Segmented, fmtPct } from './ui';
 type Group = 'class' | 'spec' | 'hero';
 
 // Резултат от сравнение на твоите таланти с топ играчите (общ за „Сравни билда“ и „Провери героя“)
-export default function CompareResult({ talents, builds, detectedHero, tree, ignore, accent }: {
+export default function CompareResult({ talents, builds, detectedHero, tree, ignore, accent, onResult }: {
   talents: Map<number, number>; builds: Build[]; detectedHero?: string; tree?: TreeData; ignore: number[]; accent: string;
+  onResult?: (matchPct: number) => void;
 }) {
   const [hero, setHero] = useState(detectedHero && builds.some((b) => b.heroTree === detectedHero) ? detectedHero : builds[0]?.heroTree);
   const [group, setGroup] = useState<Group>('spec');
   const build = builds.find((b) => b.heroTree === hero) ?? builds[0];
   const r = useMemo(() => (build ? compareTalents(talents, build, tree, ignore) : null), [talents, build, tree, ignore]);
+  useEffect(() => { if (r && hero === detectedHero) onResult?.(r.matchPct); }, [r?.matchPct, hero]);
   if (!build || !r) return null;
   const nodes = !tree ? [] : group === 'hero' ? tree.hero.find((h) => h.name === build.heroTree)?.nodes ?? [] : tree[group];
   const scoreColor = r.matchPct >= 90 ? colors.good : r.matchPct >= 75 ? colors.warn : colors.bad;
